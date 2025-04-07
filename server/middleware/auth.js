@@ -1,32 +1,66 @@
-const authService = require('../services/authService');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
-exports.authenticate = async (req, res, next) => {
+const auth = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      throw new Error();
     }
 
-    const token = authHeader.split(' ')[1];
-    const decoded = authService.verifyToken(token);
-    
-    req.user = decoded;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findOne({ _id: decoded._id });
+
+    if (!user) {
+      throw new Error();
+    }
+
+    req.user = user;
+    req.token = token;
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json({ error: 'Please authenticate.' });
   }
 };
 
-exports.authorize = (roles = []) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+const adminAuth = async (req, res, next) => {
+  try {
+    await auth(req, res, () => {
+      if (req.user.role !== 'admin') {
+        throw new Error();
+      }
+      next();
+    });
+  } catch (error) {
+    res.status(403).json({ error: 'Access denied. Admin privileges required.' });
+  }
+};
 
-    if (roles.length && !roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+const candidateAuth = async (req, res, next) => {
+  try {
+    await auth(req, res, () => {
+      if (req.user.role !== 'candidate') {
+        throw new Error();
+      }
+      next();
+    });
+  } catch (error) {
+    res.status(403).json({ error: 'Access denied. Candidate privileges required.' });
+  }
+};
 
-    next();
-  };
-}; 
+const voterAuth = async (req, res, next) => {
+  try {
+    await auth(req, res, () => {
+      if (req.user.role !== 'voter') {
+        throw new Error();
+      }
+      next();
+    });
+  } catch (error) {
+    res.status(403).json({ error: 'Access denied. Voter privileges required.' });
+  }
+};
+
+module.exports = { auth, adminAuth, candidateAuth, voterAuth }; 

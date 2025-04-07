@@ -14,18 +14,8 @@ const Elections = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const checkAccess = async () => {
-      if (!account) {
-        toast.error('Please connect your wallet to view elections');
-        navigate('/');
-        return;
-      }
-
-      fetchElections();
-    };
-
-    checkAccess();
-  }, [contract, account, navigate]);
+    fetchElections();
+  }, []);
 
   const fetchElections = async () => {
     try {
@@ -80,6 +70,10 @@ const Elections = () => {
   };
 
   const handleVote = (electionId) => {
+    if (!account) {
+      toast.error('Please connect your wallet to vote');
+      return;
+    }
     navigate(`/voting/${electionId}`);
   };
 
@@ -169,6 +163,7 @@ const Elections = () => {
           </div>
         </div>
       </main>
+      <Footer />
     </div>
   );
 };

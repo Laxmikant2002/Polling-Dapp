@@ -5,11 +5,12 @@ import Footer from '../components/Footer';
 import { useContract } from '../context/ContractContext';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
+import BlockchainService from '../services/blockchainService';
 
 const Voting = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { contract, account } = useContract();
+  const { account, provider } = useContract();
   const [election, setElection] = useState(null);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,62 +33,98 @@ const Voting = () => {
   });
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [blockchainService, setBlockchainService] = useState(null);
+
+  useEffect(() => {
+    if (provider) {
+      const service = new BlockchainService(provider);
+      service.initialize().then(() => {
+        setBlockchainService(service);
+      });
+    }
+  }, [provider]);
+
+  useEffect(() => {
+    if (blockchainService) {
+      fetchElectionData();
+    }
+  }, [blockchainService]);
 
   const fetchElectionData = async () => {
     try {
       setIsLoading(true);
-      // Mock election data
-      const mockElection = {
-        id: id,
-        title: 'Student Council Election 2024',
-        description: 'Vote for your student council representatives',
-        status: 'active',
-        securityLevel: 'high',
-        maxVoteAttempts: 3,
-        candidates: [
-          {
-            id: '1',
-            name: 'John Doe',
-            description: 'Computer Science Representative',
-            votes: 0,
-            manifesto: 'I will work to improve campus facilities and student welfare.',
-            achievements: ['Student Union President 2023', 'Academic Excellence Award 2022']
-          },
-          // ... other candidates
-        ]
-      };
-      setElection(mockElection);
+      
+      // Check if user is registered
+      const isRegistered = await blockchainService.isVoterRegistered();
+      if (!isRegistered) {
+        setErrorMessage('You are not registered to vote in this election');
+        setShowErrorModal(true);
+        return;
+      }
+
+      // Check if user has already voted
+      const hasVoted = await blockchainService.hasVoted();
+      if (hasVoted) {
+        setErrorMessage('You have already voted in this election');
+        setShowErrorModal(true);
+        return;
+      }
+
+      // Get candidate list
+      const candidates = await blockchainService.getCandidateList();
+      
+      // Get voting status
+      const status = await blockchainService.getVotingStatus();
+      
+      setElection({
+        id,
+        title: 'Election 2024',
+        status,
+        candidates: candidates.map(candidate => ({
+          id: candidate.candidateId.toString(),
+          name: candidate.name,
+          party: candidate.party,
+          description: `Age: ${candidate.age}, Gender: ${candidate.gender}`
+        }))
+      });
     } catch (error) {
       console.error('Error fetching election data:', error);
-      toast.error('Failed to load election data');
+      setErrorMessage('Failed to load election data');
+      setShowErrorModal(true);
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchElectionData();
-  }, [id, fetchElectionData]); // Add fetchElectionData to dependency array
-
-  useEffect(() => {
-    if (!account) {
-      toast.error('Please connect your wallet to vote');
-      navigate('/');
-    }
-  }, [account, navigate]); // Add navigate as dependency
-
   const handleVote = async () => {
     if (!selectedCandidate) {
-      toast.error('Please select a candidate');
+      setErrorMessage('Please select a candidate');
+      setShowErrorModal(true);
       return;
     }
 
-    if (voteAttempts >= election.maxVoteAttempts) {
-      toast.error('Maximum vote attempts reached. Please contact support.');
-      return;
+    try {
+      setIsLoading(true);
+      
+      // Get voter ID
+      const voterId = await blockchainService.getVoterId();
+      
+      // Cast vote
+      const receipt = await blockchainService.castVote(voterId, selectedCandidate);
+      
+      setVoteReceipt({
+        transactionId: receipt.transactionHash,
+        timestamp: new Date().toISOString()
+      });
+      
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error('Error casting vote:', error);
+      setErrorMessage('Failed to cast vote');
+      setShowErrorModal(true);
+    } finally {
+      setIsLoading(false);
     }
-
-    setShowSecurityModal(true);
   };
 
   const handleSecurityVerification = async () => {
@@ -172,11 +209,12 @@ const Voting = () => {
     setIsSubmittingFeedback(true);
 
     try {
-      // Simulate feedback submission
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const feedbackText = `Rating: ${feedback.rating}/5\nComment: ${feedback.comment}\nAnonymous: ${feedback.isAnonymous}`;
+      await blockchainService.submitFeedback(feedbackText);
       toast.success('Thank you for your feedback!');
       setShowSuccessModal(false);
     } catch (error) {
+      console.error('Error submitting feedback:', error);
       toast.error('Failed to submit feedback. Please try again.');
     } finally {
       setIsSubmittingFeedback(false);

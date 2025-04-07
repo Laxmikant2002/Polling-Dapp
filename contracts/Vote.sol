@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.5.0 <0.9.0;
 
-contract Vote {
-    address owner;
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+contract Vote is AccessControl, ReentrancyGuard {
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    bytes32 public constant VOTER_ROLE = keccak256("VOTER_ROLE");
+    bytes32 public constant CANDIDATE_ROLE = keccak256("CANDIDATE_ROLE");
+    
     address public electionCommission;
     address public winner;
     string public votingStatus = "Voting has not started";
@@ -25,6 +31,7 @@ contract Vote {
         uint256 voteCandidateId;
         address voterAddress;
         uint256 pollID;
+        bool isVerified;
     }
 
     struct Candidate {
@@ -36,6 +43,7 @@ contract Vote {
         address candidateAddress;
         uint256 votes;
         uint256 pollID;
+        bool isVerified;
     }
 
     struct PollInfo {
@@ -59,8 +67,35 @@ contract Vote {
     mapping(uint256 => mapping(address => bool)) public isVoterRegistered;
     bool stopVoting;
 
+    // Add new mappings for role management
+    mapping(address => bool) public isAdmin;
+    mapping(address => bool) public isVoter;
+    mapping(address => bool) public isCandidate;
+
     constructor() {
-        owner = msg.sender;
+        _setupRole(msg.sender);
+    }
+
+    function _setupRole(address _admin) internal {
+        _setupRole(ADMIN_ROLE, _admin);
+        _setupRole(VOTER_ROLE, _admin);
+        _setupRole(CANDIDATE_ROLE, _admin);
+        isAdmin[_admin] = true;
+    }
+
+    modifier onlyAdmin() {
+        require(isAdmin[msg.sender], "Only admin can perform this action");
+        _;
+    }
+
+    modifier onlyVoter() {
+        require(isVoter[msg.sender], "Only verified voters can perform this action");
+        _;
+    }
+
+    modifier onlyCandidate() {
+        require(isCandidate[msg.sender], "Only verified candidates can perform this action");
+        _;
     }
 
     modifier isVotingOver() {
@@ -83,14 +118,36 @@ contract Vote {
         return (poll.pollId, poll.winnerName, poll.partyName, poll.winnerAdd);
     }
 
-    function candidateRegister(string calldata _name, string calldata _party, uint256 _age, string calldata _gender) external votingNotStarted {
+    function candidateRegister(string calldata _name, string calldata _party, uint256 _age, string calldata _gender) 
+        external 
+        votingNotStarted 
+        nonReentrant 
+    {
         require(!isCandidateRegistered[nextPollId][msg.sender], "You have already registered");
         require(_age >= 18, "You are not eligible to be a candidate");
         require(nextCandidateId <= maxCandidates, "Maximum number of candidates reached");
-        candidateDetails[nextPollId][nextCandidateId] = Candidate(_name, _party, _age, _gender, nextCandidateId, msg.sender, 0, nextPollId);
+        
+        candidateDetails[nextPollId][nextCandidateId] = Candidate(
+            _name, 
+            _party, 
+            _age, 
+            _gender, 
+            nextCandidateId, 
+            msg.sender, 
+            0, 
+            nextPollId,
+            false
+        );
+        
         isCandidateRegistered[nextPollId][msg.sender] = true;
         emit candidate(_name, _party, nextCandidateId, electionCommission, nextPollId);
         nextCandidateId++;
+    }
+
+    function verifyCandidate(uint256 _candidateId) external onlyAdmin {
+        require(_candidateId < nextCandidateId, "Invalid candidate ID");
+        candidateDetails[nextPollId][_candidateId].isVerified = true;
+        isCandidate[candidateDetails[nextPollId][_candidateId].candidateAddress] = true;
     }
 
     function candidateList() public view returns (Candidate[] memory) {
@@ -101,22 +158,52 @@ contract Vote {
         return arr;
     }
 
-    function voterRegister(string calldata _name, uint256 _age, string calldata _gender) external votingNotStarted returns (bool) {
+    function voterRegister(string calldata _name, uint256 _age, string calldata _gender) 
+        external 
+        votingNotStarted 
+        nonReentrant 
+        returns (bool) 
+    {
         require(!isVoterRegistered[nextPollId][msg.sender], "You have already registered");
         require(_age >= 18, "You are not eligible to vote");
-        voterDetails[nextPollId][nextVoterId] = Voter(_name, _age, nextVoterId, _gender, 0, msg.sender, nextPollId);
+        
+        voterDetails[nextPollId][nextVoterId] = Voter(
+            _name, 
+            _age, 
+            nextVoterId, 
+            _gender, 
+            0, 
+            msg.sender, 
+            nextPollId,
+            false
+        );
+        
         isVoterRegistered[nextPollId][msg.sender] = true;
         emit VoterRegistered(msg.sender, nextPollId);
         nextVoterId++;
         return true;
     }
 
-    function vote(uint256 _voterId, uint256 _id) external votingNotStarted isVotingOver {
+    function verifyVoter(uint256 _voterId) external onlyAdmin {
+        require(_voterId < nextVoterId, "Invalid voter ID");
+        voterDetails[nextPollId][_voterId].isVerified = true;
+        isVoter[voterDetails[nextPollId][_voterId].voterAddress] = true;
+    }
+
+    function vote(uint256 _voterId, uint256 _id) 
+        external 
+        onlyVoter 
+        votingNotStarted 
+        isVotingOver 
+        nonReentrant 
+    {
         require(block.timestamp >= startTime && block.timestamp <= endTime, "Voting not active");
         require(voterDetails[nextPollId][_voterId].voteCandidateId == 0, "You have already voted");
         require(voterDetails[nextPollId][_voterId].voterAddress == msg.sender, "You are not a voter");
         require(nextCandidateId > 2, "There are no candidates to vote");
         require(_id < nextCandidateId, "Candidate does not exist");
+        require(candidateDetails[nextPollId][_id].isVerified, "Candidate is not verified");
+        
         voterDetails[nextPollId][_voterId].voteCandidateId = _id;
         checkVoting[nextPollId][msg.sender] = true;
         emit voter(voterDetails[nextPollId][_voterId].name, _id, msg.sender, electionCommission, nextPollId);
@@ -193,30 +280,20 @@ contract Vote {
         return 0;
     }
 
-    function voteTime(uint256 _startTime, uint256 _endTime) external {
-        require(resetElectionCommission() == true);
-        uint totalTime = _endTime;
-        require(totalTime <= maxVotingDuration, "Voting duration exceeds maximum allowed");
-        require((_startTime > 0 && _endTime > 0), "Time should be greater than 0");
-        electionCommission = msg.sender;
-
-        for (uint i = 1; i < nextCandidateId; i++) {
-            delete candidateDetails[nextPollId][i];
-        }
-        for (uint i = 1; i < nextVoterId; i++) {
-            delete voterDetails[nextPollId][i];
-        }
-        delete EcPolls[nextPollId];
-        stopVoting = true;
+    function voteTime(uint256 _startTime, uint256 _duration) external {
+        require(stopVoting == false || block.timestamp > endTime || hasRole(ADMIN_ROLE, msg.sender), "Previous voting in progress");
+        require(_duration <= maxVotingDuration, "Voting duration exceeds maximum allowed");
+        
         startTime = block.timestamp + _startTime;
-        endTime = startTime + _endTime;
-        votingStatus = "Voting in progress";
+        endTime = startTime + _duration;
+        stopVoting = false;
         nextPollId++;
+        
         emit VotingStarted(startTime, endTime);
     }
 
     function resetElectionCommission() public returns (bool) {
-        require(stopVoting == false || block.timestamp > endTime || msg.sender == owner, "Previous voting in progress");
+        require(stopVoting == false || block.timestamp > endTime || hasRole(ADMIN_ROLE, msg.sender), "Previous voting in progress");
         electionCommission = address(0);
         stopVoting = false;
         votingStatus = "Voting has ended";

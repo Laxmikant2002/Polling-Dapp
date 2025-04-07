@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-// import { ethers } from 'ethers';
-// import ABI from '../contracts/Abi.json';
+import { ethers } from 'ethers';
+import ABI from '../contracts/Abi.json';
 import { toast } from 'sonner';
 
 const ContractContext = createContext();
@@ -8,93 +8,127 @@ const ContractContext = createContext();
 export { ContractContext };
 
 export const ContractProvider = ({ children }) => {
-  const [account, setAccount] = useState('0x1234...5678'); // Mock account
+  const [account, setAccount] = useState(null);
   const [contract, setContract] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [userRole, setUserRole] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  // Mock initializeContract function
-  const initializeContract = async (provider, signer) => {
-    return {
-      // Mock contract methods
-      voterRegister: async () => ({ wait: async () => {} }),
-      candidateRegister: async () => ({ wait: async () => {} }),
-      checkVoterRegistered: async () => false,
-      checkCandidateRegistered: async () => false,
-      electionCommission: async () => '0x0000000000000000000000000000000000000000',
-    };
-  };
-
-  // Mock initialize function
-  const initialize = async () => {
-    try {
-      // Mock contract initialization
-      const mockContract = await initializeContract(null, null);
-      setContract(mockContract);
-      
-      // Check if user is already logged in
-      const storedRole = localStorage.getItem('userRole');
-      const storedEmail = localStorage.getItem('userEmail');
-      if (storedRole && storedEmail) {
-        setUserRole(storedRole);
-        setIsAuthenticated(true);
-      }
-    } catch (error) {
-      console.error('Mock initialization error:', error);
-    }
-    setIsLoading(false);
-  };
+  const [provider, setProvider] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isVoter, setIsVoter] = useState(false);
+  const [isCandidate, setIsCandidate] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    initialize();
-  }, []); // Remove initialize from dependency array as it's defined in the same scope
+    const init = async () => {
+      try {
+        if (window.ethereum) {
+          const provider = new ethers.providers.Web3Provider(window.ethereum);
+          setProvider(provider);
 
-  // Mock connectWallet function
+          const signer = provider.getSigner();
+          const contract = new ethers.Contract(
+            process.env.REACT_APP_CONTRACT_ADDRESS,
+            ABI,
+            signer
+          );
+          setContract(contract);
+
+          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          if (accounts.length > 0) {
+            setAccount(accounts[0]);
+            await checkRoles(accounts[0], contract);
+          }
+
+          window.ethereum.on('accountsChanged', async (accounts) => {
+            if (accounts.length > 0) {
+              setAccount(accounts[0]);
+              await checkRoles(accounts[0], contract);
+            } else {
+              setAccount(null);
+              setIsAdmin(false);
+              setIsVoter(false);
+              setIsCandidate(false);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error initializing contract:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    init();
+  }, []);
+
+  const checkRoles = async (address, contract) => {
+    try {
+      const [admin, voter, candidate] = await Promise.all([
+        contract.isAdmin(address),
+        contract.isVoter(address),
+        contract.isCandidate(address)
+      ]);
+
+      setIsAdmin(admin);
+      setIsVoter(voter);
+      setIsCandidate(candidate);
+    } catch (error) {
+      console.error('Error checking roles:', error);
+    }
+  };
+
   const connectWallet = async () => {
     try {
-      // Mock wallet connection
-      const mockAccount = '0x1234...5678';
-      setAccount(mockAccount);
-      toast.success('Mock wallet connected successfully!');
-      return mockAccount;
+      if (window.ethereum) {
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        if (accounts.length > 0) {
+          setAccount(accounts[0]);
+          await checkRoles(accounts[0], contract);
+          return accounts[0];
+        }
+      } else {
+        throw new Error('Please install MetaMask!');
+      }
     } catch (error) {
-      console.error('Mock connection error:', error);
+      console.error('Error connecting wallet:', error);
       throw error;
     }
   };
 
-  const login = async (email, role) => {
+  const verifyUser = async (userId, userType) => {
     try {
-      localStorage.setItem('userEmail', email);
-      localStorage.setItem('userRole', role);
-      setUserRole(role);
-      setIsAuthenticated(true);
-      return true;
+      if (!isAdmin) {
+        throw new Error('Only admin can verify users');
+      }
+
+      if (userType === 'voter') {
+        await contract.verifyVoter(userId);
+      } else if (userType === 'candidate') {
+        await contract.verifyCandidate(userId);
+      } else {
+        throw new Error('Invalid user type');
+      }
+
+      // Refresh roles after verification
+      await checkRoles(account, contract);
     } catch (error) {
-      console.error('Login error:', error);
-      return false;
+      console.error('Error verifying user:', error);
+      throw error;
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userRole');
-    setUserRole(null);
-    setIsAuthenticated(false);
+  const value = {
+    account,
+    contract,
+    provider,
+    isAdmin,
+    isVoter,
+    isCandidate,
+    isLoading,
+    connectWallet,
+    verifyUser
   };
 
   return (
-    <ContractContext.Provider value={{ 
-      account, 
-      contract, 
-      isLoading,
-      connectWallet,
-      userRole,
-      isAuthenticated,
-      login,
-      logout
-    }}>
+    <ContractContext.Provider value={value}>
       {children}
     </ContractContext.Provider>
   );

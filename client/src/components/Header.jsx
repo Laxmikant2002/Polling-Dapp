@@ -26,7 +26,7 @@ const Header = () => {
               >
                 Home
               </Link>
-              {account ? (
+              {account && (
                 <>
                   <Link
                     to="/elections"
@@ -49,9 +49,10 @@ const Header = () => {
                     </Link>
                   )}
                 </>
-              ) : (
+              )}
+              {!account && (
                 <button
-                  onClick={() => navigate('/verification')}
+                  onClick={() => navigate('/login')}
                   className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 px-1 pt-1 border-b-2 text-sm font-medium"
                 >
                   Login

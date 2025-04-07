@@ -1,15 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { useContract } from '../context/ContractContext';
 import { toast } from 'sonner';
 import VoterListManager from '../components/VoterListManager';
 import { checkAdminStatus } from '../services/adminService';
+import {
+  Box,
+  Container,
+  Typography,
+  Button,
+  Grid,
+  Paper,
+  Card,
+  CardContent,
+  CardActions
+} from '@mui/material';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const { contract, account } = useContract();
+  const { contract, account, isAdmin } = useContract();
   const [elections, setElections] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -191,6 +202,21 @@ const AdminDashboard = () => {
     });
   };
 
+  if (!isAdmin) {
+    return (
+      <Container maxWidth="lg">
+        <Box sx={{ my: 4 }}>
+          <Typography variant="h4" component="h1" gutterBottom>
+            Access Denied
+          </Typography>
+          <Typography variant="body1">
+            You do not have permission to access this page.
+          </Typography>
+        </Box>
+      </Container>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="font-['Inter'] bg-gray-50 min-h-screen">
@@ -210,6 +236,88 @@ const AdminDashboard = () => {
       <Header />
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <Container maxWidth="lg">
+            <Box sx={{ my: 4 }}>
+              <Typography variant="h4" component="h1" gutterBottom>
+                Admin Dashboard
+              </Typography>
+
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        Election Management
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Create and manage elections, view results, and verify votes.
+                      </Typography>
+                    </CardContent>
+                    <CardActions>
+                      <Button component={Link} to="/elections" color="primary">
+                        Manage Elections
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        User Verification
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Verify voters and candidates for elections.
+                      </Typography>
+                    </CardContent>
+                    <CardActions>
+                      <Button component={Link} to="/verify" color="primary">
+                        Verify Users
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        Monitoring Dashboard
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        View system activities and transaction logs.
+                      </Typography>
+                    </CardContent>
+                    <CardActions>
+                      <Button component={Link} to="/monitoring" color="primary">
+                        View Monitoring
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        Results Management
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        View and manage election results.
+                      </Typography>
+                    </CardContent>
+                    <CardActions>
+                      <Button component={Link} to="/results" color="primary">
+                        View Results
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              </Grid>
+            </Box>
+          </Container>
+
           {/* Tab Navigation */}
           <div className="border-b border-gray-200 mb-6">
             <nav className="-mb-px flex space-x-8">
